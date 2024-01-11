@@ -3,7 +3,7 @@ const express = require("express");//importing the express module, which is a we
 const bodyParser = require("body-parser");//body-parser module parse incoming request in a middleware before your handlers.
 const ejs = require("ejs");// ejs is a templating engine that allows you to embed JavaScript code directly within your HTML files
 const mongoose= require("mongoose")//mongoose is an Object Data Modeling (ODM) library for MongoDB and Node.js
-const encrypt = require("mongoose-encryption")
+var md5 = require('md5');
 
 ////initializes an instance of the Express application.it configure routes, set up middleware, and define web server behaviour.
 const app = express();
@@ -26,7 +26,7 @@ const userSchema= new mongoose.Schema({
 });
 
 
-userSchema.plugin(encrypt, { secret: process.env.SECRET, encryptedFields:["password "] });
+
 
 
 
@@ -50,7 +50,7 @@ app.get("/login",function(req,res){
 app.post("/register", async function(req, res) {
     const newUser = new User({
         email: req.body.username,
-        password: req.body.password
+        password: md5(req.body.password)
     });
 
     try {
@@ -65,7 +65,7 @@ app.post("/register", async function(req, res) {
 app.post("/login", async function(req, res) {
     // Extract username and password from the request body
     const username = req.body.username;
-    const password = req.body.password;
+    const password = md5(req.body.password);
 
     try {
         // Attempt to find a user in the database from the user model based on the provided email
