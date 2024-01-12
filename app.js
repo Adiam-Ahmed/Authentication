@@ -91,3 +91,6 @@ app.post("/login", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server started on port ${PORT}`);
 });
+
+
+//adding cookies using passport ,  npm i passport passport-local passport-local-mongoose express-session
