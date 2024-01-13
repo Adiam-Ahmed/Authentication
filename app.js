@@ -7,6 +7,8 @@ const session = require('express-session');// middleware to handle user sessions
 const PORT = process.env.PORT || 3000;
 const passport = require("passport");
 const passportLocalMongoose= require("passport-local-mongoose");
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate')
 
 
 ////initializes an instance of the Express application.it configure routes, set up middleware, and define web server behaviour.
@@ -32,6 +34,7 @@ app.use(session({
 app.use(passport.initialize()); // Passport Initialization Middleware
 app.use(passport.session()); // Passport Session Middleware
 
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/userDB');
 
@@ -40,10 +43,13 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/userDB');
 //I have updated it from plain JavaScript object to mongoose.Schema as its a class and this way we can defining more complex and structured schemas.
 const userSchema= new mongoose.Schema({
     email: String,
-    password:String
+    password:String,
+    googleId:String,
+    secret:String
 });
 
 userSchema.plugin(passportLocalMongoose);//use to hash and salt our passwords and to save
+userSchema.plugin(findOrCreate);
 
 // Set up a new user module 
 const User = new mongoose.model("User",userSchema)
@@ -53,28 +59,112 @@ passport.use(User.createStrategy());
 
 
 // use static serialize and deserialize of model for passport session support
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+// passport.serializeUser(User.serializeUser());
+// passport.deserializeUser(User.deserializeUser());
+
+// Serialize the user to store in the session
+passport.serializeUser(function(user, done) {
+    done(null, user.id);
+});
+
+passport.deserializeUser(function(id, done) {
+    User.findById(id)
+        .then(user => {
+            done(null, user);
+        })
+        .catch(err => {
+            done(err, null);
+        });
+});
+
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    userProfileURL:"https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
 app.get("/",function(req,res){
   res.render("home")
 });
 
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ["profile"] }));
+
+  app.get("/auth/google/secrets", 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect secrets.
+    res.redirect('/secrets');
+  });
+
 app.get("/register",function(req,res){
     res.render("register")
   });
 
+
+// // Route for handling GET requests to "/secrets"
+// app.get("/secrets", function(req, res) {
+//     // Check if the user is authenticated using Passport's isAuthenticated method
+//     if (req.isAuthenticated()) {
+//         // If authenticated, render the "secrets" view
+//         res.render("secrets");
+//     } else {
+//         // If not authenticated, redirect the user to the "/login" route
+//         res.redirect("/login");
+//     }
+// });
+
 // Route for handling GET requests to "/secrets"
-app.get("/secrets", function(req, res) {
-    // Check if the user is authenticated using Passport's isAuthenticated method
-    if (req.isAuthenticated()) {
-        // If authenticated, render the "secrets" view
-        res.render("secrets");
-    } else {
-        // If not authenticated, redirect the user to the "/login" route
-        res.redirect("/login");
+app.get("/secrets", async function(req, res) {
+    try {
+        // Find users where the "Secret" field is not null
+        const foundUsers = await User.find({"secret": {$ne: null}});
+        console.log("Found Users with Secrets:", foundUsers);
+        // Render the "secrets" view and pass the found users to the template
+        res.render("secrets", { usersWithSecrets: foundUsers });
+    } catch (err) {
+        // If there's an error during the database query, log the error
+        console.log(err);
+        // Handle the error, you might want to send an error response or redirect to an error page
+        res.status(500).send("Internal Server Error");
     }
 });
+
+app.get("/submit",function(req,res){
+    if (req.isAuthenticated()) {
+        res.render("submit");
+    } else {
+        res.redirect("/login");
+    } 
+})
+
+app.post("/submit", async function (req, res) {
+    try {
+        const submittedSecret = req.body.secret; // Get the submitted secret from the request body
+        const foundUser = await User.findById(req.user.id);  // Attempt to find the user by ID using await
+        console.log(req.user.id)
+        console.log(req.user.secret)
+        // If the user is found, update the secret and save it
+        if (foundUser) {
+            foundUser.secret = submittedSecret;
+            await foundUser.save();// Save the updated user information using await
+            res.redirect("/secrets"); // Redirect to the "/secrets" route after successful update
+        }
+    } catch (err) {
+        // If any error occurs during the try block, catch it here
+        console.log(err);
+    }
+});
+
+
 
 app.get("/login",function(req,res){
     res.render("login")
